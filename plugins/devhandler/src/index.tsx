@@ -1,6 +1,3 @@
-import { ReactNative } from "@vendetta/metro/common";
-import Settings from "./Settings"; // Kannst deine leere oder alte Settings-Datei lassen
-
 let unpatchInspector: (() => void) | undefined;
 
 export function onLoad() {
@@ -10,22 +7,23 @@ export function onLoad() {
     return;
   }
 
-  console.log("[Inspector] Plugin erfolgreich geladen. Suche nach Clan-Komponenten...");
+  console.log("[Inspector] Plugin geladen. Suche nach Komponenten...");
 
-  // Dieser Hook fängt jedes neu gezeichnete Element ab
+  // Registriert den globalen Wildcard-Patch (*)
   unpatchInspector = jsx.onJsxCreate("*", (node: any, element: any) => {
-    // Ermittle den Namen der React-Komponente
-    const componentName = node?.name || element?.type?.name || element?.type;
-    
-    if (typeof componentName === "string") {
-      const nameLower = componentName.toLowerCase();
+    try {
+      const componentName = node?.name || element?.type?.name || element?.type;
       
-      // Wir filtern nach interessanten Begriffen rund um Clans und Tags
-      if (nameLower.includes("clan") || nameLower.includes("tag") || nameLower.includes("guild")) {
+      if (typeof componentName === "string") {
+        const nameLower = componentName.toLowerCase();
         
-        // Das schreibt den Namen und alle Props (id, userId, etc.) direkt in deine App-Logs
-        console.log(`[Inspector] GEFUNDEN: ${componentName}`, JSON.stringify(element?.props || {}));
+        // Filtert nach allem, was mit Clans, Tags oder Guilds zu tun hat
+        if (nameLower.includes("clan") || nameLower.includes("tag") || nameLower.includes("guild")) {
+          console.log(`[Inspector] GEFUNDEN: ${componentName} -> ` + JSON.stringify(element?.props || {}));
+        }
       }
+    } catch (e) {
+      // Verhindert, dass Fehler beim Stringify den Client crashen
     }
   });
 }
@@ -38,7 +36,9 @@ export function onUnload() {
   console.log("[Inspector] Entladen.");
 }
 
-export const settings = Settings;
+// Wir definieren ein leeres Inline-React-Element für die Settings, 
+// damit wir keine separate Settings-Datei importieren müssen!
+export const settings = () => null;
 
 export default {
   onLoad,
