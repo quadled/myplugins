@@ -2,7 +2,9 @@ import { storage } from "@vendetta/plugin";
 
 export type CustomBadge = {
   userId: string;
+  type: string;
   label: string;
+  uri: string;
 };
 
 type BadgeStorage = {
@@ -17,21 +19,23 @@ export function getBadges() {
 }
 
 export function getBadgeForUser(userId: string) {
-  return getBadges().find((badge) => badge.userId === userId);
+  return getBadges().filter((badge) => badge.userId === userId);
 }
 
-export function addBadge(userId: string, label: string) {
+export function addBadge(userId: string, label: string, uri: string) {
   const badges = getBadges();
-  const existing = badges.find((badge) => badge.userId === userId);
+  const type = `${userId}-${label}`.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+  const existing = badges.find((badge) => badge.userId === userId && badge.type === type);
 
   if (existing) {
     existing.label = label;
+    existing.uri = uri;
     return;
   }
 
-  badges.push({ userId, label });
+  badges.push({ userId, type, label, uri });
 }
 
-export function removeBadge(userId: string) {
-  data.badges = getBadges().filter((badge) => badge.userId !== userId);
+export function removeBadge(type: string) {
+  data.badges = getBadges().filter((badge) => badge.type !== type);
 }

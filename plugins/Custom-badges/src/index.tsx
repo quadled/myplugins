@@ -1,135 +1,90 @@
-import { findByName } from "@vendetta/metro";
-import { after } from "@vendetta/patcher";
+import { React, ReactNative } from "@vendetta/metro/common";
+import { Forms } from "@vendetta/ui/components";
+import { addBadge, getBadges, removeBadge } from "./storage";
 
-type Badge = {
-  type: string;
-  label: string;
-  uri: string;
-};
+const { FormSection, FormText, FormRow, FormInput, FormDivider } = Forms;
+const { Image, View, Text, TouchableOpacity } = ReactNative;
 
-const PRESET_BADGES: Record<string, Omit<Badge, "type">> = {
-  developer: {
-    label: "Developer",
-    uri: "https://cdn.discordapp.com/emojis/860165259117199401.webp",
-  },
-  designer: {
-    label: "Designer",
-    uri: "https://cdn.discordapp.com/emojis/886587553187246120.webp",
-  },
-  booster: {
-    label: "Server Booster",
-    uri: "https://cdn.discordapp.com/emojis/859801776232202280.webp",
-  },
-  owner: {
-    label: "Server Owner",
-    uri: "https://cdn.discordapp.com/emojis/860165259117199401.webp",
-  },
-};
+export default function Settings() {
+  const [userId, setUserId] = React.useState("");
+  const [label, setLabel] = React.useState("");
+  const [uri, setUri] = React.useState("");
+  const [refresh, setRefresh] = React.useState(0);
 
-const BADGE_CONFIG: Record<string, Array<string | Badge>> = {
-  "1015212381619626014": ["developer", "owner"],
-};
+  const badges = getBadges();
 
-function resolveBadgesForUser(userId: string) {
-  const entries = BADGE_CONFIG[userId];
-  if (!entries) return [];
+  return (
+    <FormSection title="Custom Badges">
+      <FormText>
+        Badges sind lokal sichtbar. Andere sehen sie nur, wenn sie dieses Plugin auch installiert haben.
+      </FormText>
 
-  const badges: Badge[] = [];
+      <FormInput
+        title="User ID"
+        value={userId}
+        onChange={setUserId}
+        placeholder="Discord User ID"
+      />
 
-  for (const entry of entries) {
-    if (typeof entry === "string") {
-      const preset = PRESET_BADGES[entry];
-      if (!preset) continue;
+      <FormInput
+        title="Badge Text"
+        value={label}
+        onChange={setLabel}
+        placeholder="z.B. Owner"
+      />
 
-      badges.push({
-        type: entry,
-        label: preset.label,
-        uri: preset.uri,
-      });
+      <FormInput
+        title="Bild URL"
+        value={uri}
+        onChange={setUri}
+        placeholder="https://..."
+      />
 
-      continue;
-    }
+      <TouchableOpacity
+        onPress={() => {
+          const cleanUserId = userId.trim();
+          const cleanLabel = label.trim();
+          const cleanUri = uri.trim();
+          if (!cleanUserId || !cleanLabel || !cleanUri) return;
+          if (!cleanUri.startsWith("https://") && !cleanUri.startsWith("http://")) return;
 
-    if (!entry.uri.startsWith("https://") && !entry.uri.startsWith("http://")) continue;
-    badges.push(entry);
-  }
+          addBadge(cleanUserId, cleanLabel, cleanUri);
+          setUserId("");
+          setLabel("");
+          setUri("");
+          setRefresh(refresh + 1);
+        }}
+      >
+        <FormRow label="Badge hinzufuegen" />
+      </TouchableOpacity>
 
-  return badges;
+      <FormDivider />
+
+      {badges.length === 0 ? (
+        <FormText>Noch keine Badges gespeichert.</FormText>
+      ) : (
+        badges.map((badge) => (
+          <View key={badge.type}>
+            <TouchableOpacity
+              onPress={() => {
+                removeBadge(badge.type);
+                setRefresh(refresh + 1);
+              }}
+            >
+              <FormRow
+                label={badge.label}
+                subLabel={badge.userId}
+                leading={React.createElement(Image, {
+                  source: { uri: badge.uri },
+                  style: { width: 24, height: 24, borderRadius: 4 },
+                })}
+                trailing={React.createElement(Text, { style: { color: "#ed4245" } }, "Loeschen")}
+              />
+            </TouchableOpacity>
+            <FormDivider />
+          </View>
+        ))
+      )}
+    </FormSection>
+  );
 }
-
-const badgePropsMap: Record<string, any> = {};
-let unpatchBadges: undefined | (() => void);
-let jsxUnpatches: Array<() => void> = [];
-
-function patchJsxBadges() {
-  const jsx = (window as any)?.bunny?.api?.react?.jsx;
-  if (!jsx?.onJsxCreate) return;
-
-  const unpatchProfileBadge = jsx.onJsxCreate("ProfileBadge", (_node: unknown, element: any) => {
-    if (!element?.props?.id?.startsWith("cb-")) return;
-
-    const props = badgePropsMap[element.props.id];
-    if (!props) return;
-
-    element.props.source = props.source;
-    element.props.label = props.label;
-    element.props.id = props.id;
-  });
-
-  const unpatchRenderBadge = jsx.onJsxCreate("RenderBadge", (_node: unknown, element: any) => {
-    if (!element?.props?.id?.startsWith("cb-")) return;
-
-    const props = badgePropsMap[element.props.id];
-    if (props) Object.assign(element.props, props);
-  });
-
-  if (typeof unpatchProfileBadge === "function") jsxUnpatches.push(unpatchProfileBadge);
-  if (typeof unpatchRenderBadge === "function") jsxUnpatches.push(unpatchRenderBadge);
-}
-
-function patchUseBadges() {
-  const useBadgesModule = findByName("useBadges", false);
-  if (!useBadgesModule?.default) return;
-
-  unpatchBadges = after("default", useBadgesModule, ([user], badgeList) => {
-    const userId = user?.userId ?? user?.id;
-    if (!userId || !Array.isArray(badgeList)) return badgeList;
-
-    const badges = resolveBadgesForUser(userId);
-
-    for (const badge of badges) {
-      const badgeId = `cb-${badge.type}`;
-
-      badgePropsMap[badgeId] = {
-        id: badgeId,
-        source: { uri: badge.uri },
-        label: badge.label,
-        userId,
-      };
-
-      if (!badgeList.some((existingBadge: any) => existingBadge?.id === badgeId)) {
-        badgeList.push({
-          id: badgeId,
-          description: badge.label,
-          icon: "dummy",
-        });
-      }
-    }
-
-    return badgeList;
-  });
-}
-
-export default {
-  onLoad: () => {
-    patchJsxBadges();
-    patchUseBadges();
-  },
-  onUnload: () => {
-    unpatchBadges?.();
-    unpatchBadges = undefined;
-
-    for (const unpatch of jsxUnpatches) unpatch();
-    jsxUnpatches = [];
-  },
-};
