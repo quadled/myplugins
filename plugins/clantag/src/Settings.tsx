@@ -20,12 +20,10 @@ const inputStyle = {
 export default function Settings() {
   useProxy(storage);
 
-  // States für Badges
   const [userId, setUserId] = React.useState("");
   const [label, setLabel] = React.useState("");
   const [uri, setUri] = React.useState("");
 
-  // States für Clan Tags
   const [clanUserId, setClanUserId] = React.useState("");
   const [clanLabel, setClanLabel] = React.useState("");
   const [clanUri, setClanUri] = React.useState("");
@@ -37,21 +35,92 @@ export default function Settings() {
 
   return (
     <ScrollView>
-      {/* SEKTION 1: BADGES (Dein bestehender Code) */}
       <FormSection title="Custom Badges">
-        {/* ... hier bleibt dein kompletter originaler Badge-Input & die Map-Liste drin ... */}
+        <FormText>
+          Badges sind lokal sichtbar. Andere sehen sie nur, wenn sie dieses Plugin auch installiert haben.
+        </FormText>
+
+        <TextInput
+          style={inputStyle as any}
+          value={userId}
+          onChangeText={setUserId}
+          placeholder="Discord User ID"
+          placeholderTextColor="#949ba4"
+        />
+
+        <TextInput
+          style={inputStyle as any}
+          value={label}
+          onChangeText={setLabel}
+          placeholder="z.B. Owner"
+          placeholderTextColor="#949ba4"
+        />
+
+        <TextInput
+          style={inputStyle as any}
+          value={uri}
+          onChangeText={setUri}
+          placeholder="https://..."
+          placeholderTextColor="#949ba4"
+          autoCapitalize="none"
+        />
+
+        <Pressable
+          onPress={() => {
+            const cleanUserId = userId.trim();
+            const cleanLabel = label.trim();
+            const cleanUri = uri.trim();
+            if (!cleanUserId || !cleanLabel || !cleanUri) return;
+            if (!cleanUri.startsWith("https://") && !cleanUri.startsWith("http://")) return;
+
+            addBadge(cleanUserId, cleanLabel, cleanUri);
+            setUserId("");
+            setLabel("");
+            setUri("");
+            setRefresh(refresh + 1);
+          }}
+        >
+          <FormRow label="Badge hinzufuegen" />
+        </Pressable>
+
+        <FormDivider />
+
+        {badges.length === 0 ? (
+          <FormText>Noch keine Badges gespeichert.</FormText>
+        ) : (
+          badges.map((badge) => (
+            <View key={badge.type}>
+              <Pressable
+                onPress={() => {
+                  removeBadge(badge.type);
+                  setRefresh(refresh + 1);
+                }}
+              >
+                <FormRow
+                  label={badge.label}
+                  subLabel={badge.userId}
+                  leading={React.createElement(Image, {
+                    source: { uri: badge.uri },
+                    style: { width: 24, height: 24, borderRadius: 4 } as any,
+                  })}
+                  trailing={React.createElement(Text, { style: { color: "#ed4245" } }, "Loeschen")}
+                />
+              </Pressable>
+              <FormDivider />
+            </View>
+          ))
+        )}
       </FormSection>
 
       <FormDivider />
 
-      {/* NEUE SEKTION 2: CLAN TAGS */}
       <FormSection title="Custom Clan Tags">
-        <FormText style={{ marginHorizontal: 16, marginBottom: 10 }}>
-          Erstelle ein lokales Clan-Tag (z.B. [Qrew]) mit eigenem Icon neben dem Namen.
+        <FormText>
+          Erstelle ein lokales Clan-Tag mit eigenem Icon neben dem Namen.
         </FormText>
 
         <TextInput
-          style={inputStyle}
+          style={inputStyle as any}
           value={clanUserId}
           onChangeText={setClanUserId}
           placeholder="Discord User ID"
@@ -59,7 +128,7 @@ export default function Settings() {
         />
 
         <TextInput
-          style={inputStyle}
+          style={inputStyle as any}
           value={clanLabel}
           onChangeText={setClanLabel}
           placeholder="Clan Name (z.B. Qrew)"
@@ -67,7 +136,7 @@ export default function Settings() {
         />
 
         <TextInput
-          style={inputStyle}
+          style={inputStyle as any}
           value={clanUri}
           onChangeText={setClanUri}
           placeholder="Icon URL (https://...)"
@@ -96,7 +165,7 @@ export default function Settings() {
         <FormDivider />
 
         {clanTags.length === 0 ? (
-          <FormText style={{ marginHorizontal: 16 }}>Noch keine Clan Tags gespeichert.</FormText>
+          <FormText>Noch keine Clan Tags gespeichert.</FormText>
         ) : (
           clanTags.map((clan) => (
             <View key={clan.userId}>
@@ -111,7 +180,7 @@ export default function Settings() {
                   subLabel={`User: ${clan.userId}`}
                   leading={React.createElement(Image, {
                     source: { uri: clan.uri },
-                    style: { width: 24, height: 24, borderRadius: 4 },
+                    style: { width: 24, height: 24, borderRadius: 4 } as any,
                   })}
                   trailing={React.createElement(Text, { style: { color: "#ed4245" } }, "Loeschen")}
                 />
