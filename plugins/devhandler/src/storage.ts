@@ -1,41 +1,38 @@
-export type LogEntry = {
-  id: string;
-  component: string;
-  props: string;
-  time: string;
+import { storage } from "@vendetta/plugin";
+
+export type CustomClan = {
+  userId: string;
+  label: string;
+  uri: string;
 };
 
-// Temporärer Log-Speicher (wird beim App-Neustart geleert)
-export const internalLogs: LogEntry[] = [];
-let logUpdateCallback: (() => void) | undefined;
+type EnhancedStorage = {
+  clanTags?: CustomClan[];
+};
 
-export function addLog(component: string, propsObj: any) {
-  const time = new Date().toLocaleTimeString();
-  const id = Math.random().toString(36).substr(2, 9);
-  
-  // Nur die neuesten 50 Logs behalten, damit das Handy nicht laggt
-  if (internalLogs.length > 50) internalLogs.shift();
-  
-  internalLogs.push({
-    id,
-    component,
-    props: JSON.stringify(propsObj),
-    time
-  });
+const data = storage as EnhancedStorage;
 
-  // UI benachrichtigen, falls aktiv
-  if (logUpdateCallback) logUpdateCallback();
+export function getClanTags(): CustomClan[] {
+  data.clanTags ??= [];
+  return data.clanTags;
 }
 
-export function clearLogs() {
-  internalLogs.length = 0;
-  if (logUpdateCallback) logUpdateCallback();
+export function getClanTagForUser(userId: string): CustomClan | undefined {
+  return getClanTags().find((clan) => clan.userId === userId);
 }
 
-export function registerLogListener(callback: () => void) {
-  logUpdateCallback = callback;
+export function addClanTag(userId: string, label: string, uri: string): void {
+  const clans = getClanTags();
+  const existing = clans.find((clan) => clan.userId === userId);
+
+  if (existing) {
+    existing.label = label;
+    existing.uri = uri;
+  } else {
+    clans.push({ userId, label, uri });
+  }
 }
 
-export function unregisterLogListener() {
-  logUpdateCallback = undefined;
+export function removeClanTag(userId: string): void {
+  data.clanTags = getClanTags().filter((clan) => clan.userId !== userId);
 }
