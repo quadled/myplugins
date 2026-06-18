@@ -27,7 +27,7 @@ const PRESET_BADGES: Record<string, Omit<Badge, "type">> = {
 };
 
 const BADGE_CONFIG: Record<string, Array<string | Badge>> = {
-  "123456789012345678": ["developer", "owner"],
+  "1015212381619626014": ["developer", "owner"],
 };
 
 function resolveBadgesForUser(userId: string) {
