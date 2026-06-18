@@ -3,71 +3,69 @@ import { after } from "@vendetta/patcher";
 import Settings from "./Settings";
 import { getClanTagForUser } from "./storage";
 
-let unpatchUserStore: undefined | (() => void);
-let jsxUnpatches: Array<() => void> = [];
+let unpatches: Array<() => void> = [];
 
-function patchJsxClans() {
-  const jsx = (window as any)?.bunny?.api?.react?.jsx;
-  if (!jsx?.onJsxCreate) return;
-
-  const unpatchClanTag = jsx.onJsxCreate("ClanTag", (_node: unknown, element: any) => {
-    const userId = element?.props?.userId; 
-    if (!userId) return;
-
-    const customClan = getClanTagForUser(userId);
-    if (customClan && customClan.uri) {
-      if (element.props?.badge) {
-        element.props.badge.badgeUrl = customClan.uri;
-      }
-      if (element.props?.source) {
-        element.props.source = { uri: customClan.uri };
-      }
-    }
-  });
-
-  if (typeof unpatchClanTag === "function") jsxUnpatches.push(unpatchClanTag);
-}
-
-function patchUserStoreForClans() {
+function patchUserStores() {
   const UserStore = findByStoreName("UserStore");
-  if (!UserStore) return;
+  const UserProfileStore = findByStoreName("UserProfileStore");
 
-  unpatchUserStore = after("getUser", UserStore, ([userId], user) => {
-    if (!user) return user;
+  // Patch 1: UserStore (Für die Anzeige direkt im Chat)
+  if (UserStore) {
+    const unpatchUser = after("getUser", UserStore, ([userId], user) => {
+      if (!user) return user;
 
-    const customClan = getClanTagForUser(userId);
-    if (customClan) {
-      (user as any).clan = {
-        tag: customClan.label,
-        identityGuildId: "custom-clan-id",
-        badge: {
-          badgeUrl: customClan.uri,
-          id: "custom-badge-id"
-        }
-      };
-    }
+      const customClan = getClanTagForUser(userId);
+      if (customClan) {
+        const anyUser = user as any;
+        
+        // Exakt die Struktur aus deinem Screenshot!
+        anyUser.clan = {
+          tag: customClan.label,
+          identityGuildId: "custom_clan_id",
+          badge: {
+            badgeUrl: customClan.uri,
+            id: "custom_badge_id"
+          }
+        };
+      }
+      return user;
+    });
+    unpatches.push(unpatchUser);
+  }
 
-    return user;
-  });
+  // Patch 2: UserProfileStore (Für die große Profilkarte beim Anklicken)
+  if (UserProfileStore) {
+    const unpatchProfile = after("getUserProfile", UserProfileStore, ([userId], profile) => {
+      if (!profile) return profile;
+
+      const customClan = getClanTagForUser(userId);
+      if (customClan) {
+        const anyProfile = profile as any;
+        
+        // Dieselbe Struktur auch fürs Profil
+        anyProfile.clan = {
+          tag: customClan.label,
+          identityGuildId: "custom_clan_id",
+          badge: {
+            badgeUrl: customClan.uri,
+            id: "custom_badge_id"
+          }
+        };
+      }
+      return profile;
+    });
+    unpatches.push(unpatchProfile);
+  }
 }
 
 export function onLoad() {
-  patchJsxClans();
-  patchUserStoreForClans();
+  patchUserStores();
 }
 
 export function onUnload() {
-  unpatchUserStore?.();
-  unpatchUserStore = undefined;
-
-  for (const unpatch of jsxUnpatches) unpatch();
-  jsxUnpatches = [];
+  for (const unpatch of unpatches) unpatch();
+  unpatches = [];
 }
 
 export const settings = Settings;
-
-export default {
-  onLoad,
-  onUnload,
-  settings,
-};
+export default { onLoad, onUnload, settings };
