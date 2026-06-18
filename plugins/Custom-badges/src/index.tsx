@@ -1,79 +1,135 @@
-import { React, ReactNative } from "@vendetta/metro/common";
+import { findByName } from "@vendetta/metro";
 import { after } from "@vendetta/patcher";
-import { findByProps } from "@vendetta/metro";
-import Settings from "./Settings";
-import { getBadgeForUser } from "./storage";
 
-let unpatches: Array<() => void> = [];
+type Badge = {
+  type: string;
+  label: string;
+  uri: string;
+};
 
-function makeBadge(label: string) {
-  return React.createElement(
-    ReactNative.Text,
-    {
-      style: {
-        backgroundColor: "#5865f2",
-        borderRadius: 4,
-        color: "#ffffff",
-        fontSize: 11,
-        fontWeight: "700",
-        marginLeft: 6,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-      },
-    },
-    label,
-  );
-}
+const PRESET_BADGES: Record<string, Omit<Badge, "type">> = {
+  developer: {
+    label: "Developer",
+    uri: "https://cdn.discordapp.com/emojis/860165259117199401.webp",
+  },
+  designer: {
+    label: "Designer",
+    uri: "https://cdn.discordapp.com/emojis/886587553187246120.webp",
+  },
+  booster: {
+    label: "Server Booster",
+    uri: "https://cdn.discordapp.com/emojis/859801776232202280.webp",
+  },
+  owner: {
+    label: "Server Owner",
+    uri: "https://cdn.discordapp.com/emojis/860165259117199401.webp",
+  },
+};
 
-function appendBadgeToTree(node: any, userId: string): any {
-  const badge = getBadgeForUser(userId);
-  if (!badge) return node;
+const BADGE_CONFIG: Record<string, Array<string | Badge>> = {
+  "123456789012345678": ["developer", "owner"],
+};
 
-  const children = node?.props?.children;
-  if (!Array.isArray(children)) return node;
+function resolveBadgesForUser(userId: string) {
+  const entries = BADGE_CONFIG[userId];
+  if (!entries) return [];
 
-  if (children.some((child) => child?.props?.quadledCustomBadge)) return node;
+  const badges: Badge[] = [];
 
-  children.push(
-    React.cloneElement(makeBadge(badge.label), {
-      key: `quadled-custom-badge-${userId}`,
-      quadledCustomBadge: true,
-    }),
-  );
+  for (const entry of entries) {
+    if (typeof entry === "string") {
+      const preset = PRESET_BADGES[entry];
+      if (!preset) continue;
 
-  return node;
-}
-
-function patchPossibleBadgeRows() {
-  const candidates = [
-    findByProps("UserProfileBadges"),
-    findByProps("ProfileBadges"),
-    findByProps("BadgeList"),
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    for (const key of Object.keys(candidate)) {
-      if (typeof candidate[key] !== "function") continue;
-
-      const unpatch = after(key, candidate, ([props], result) => {
-        const userId = props?.user?.id ?? props?.userId ?? props?.profile?.user?.id;
-        if (!userId) return result;
-
-        return appendBadgeToTree(result, userId);
+      badges.push({
+        type: entry,
+        label: preset.label,
+        uri: preset.uri,
       });
 
-      unpatches.push(unpatch);
+      continue;
     }
+
+    if (!entry.uri.startsWith("https://") && !entry.uri.startsWith("http://")) continue;
+    badges.push(entry);
   }
+
+  return badges;
+}
+
+const badgePropsMap: Record<string, any> = {};
+let unpatchBadges: undefined | (() => void);
+let jsxUnpatches: Array<() => void> = [];
+
+function patchJsxBadges() {
+  const jsx = (window as any)?.bunny?.api?.react?.jsx;
+  if (!jsx?.onJsxCreate) return;
+
+  const unpatchProfileBadge = jsx.onJsxCreate("ProfileBadge", (_node: unknown, element: any) => {
+    if (!element?.props?.id?.startsWith("cb-")) return;
+
+    const props = badgePropsMap[element.props.id];
+    if (!props) return;
+
+    element.props.source = props.source;
+    element.props.label = props.label;
+    element.props.id = props.id;
+  });
+
+  const unpatchRenderBadge = jsx.onJsxCreate("RenderBadge", (_node: unknown, element: any) => {
+    if (!element?.props?.id?.startsWith("cb-")) return;
+
+    const props = badgePropsMap[element.props.id];
+    if (props) Object.assign(element.props, props);
+  });
+
+  if (typeof unpatchProfileBadge === "function") jsxUnpatches.push(unpatchProfileBadge);
+  if (typeof unpatchRenderBadge === "function") jsxUnpatches.push(unpatchRenderBadge);
+}
+
+function patchUseBadges() {
+  const useBadgesModule = findByName("useBadges", false);
+  if (!useBadgesModule?.default) return;
+
+  unpatchBadges = after("default", useBadgesModule, ([user], badgeList) => {
+    const userId = user?.userId ?? user?.id;
+    if (!userId || !Array.isArray(badgeList)) return badgeList;
+
+    const badges = resolveBadgesForUser(userId);
+
+    for (const badge of badges) {
+      const badgeId = `cb-${badge.type}`;
+
+      badgePropsMap[badgeId] = {
+        id: badgeId,
+        source: { uri: badge.uri },
+        label: badge.label,
+        userId,
+      };
+
+      if (!badgeList.some((existingBadge: any) => existingBadge?.id === badgeId)) {
+        badgeList.push({
+          id: badgeId,
+          description: badge.label,
+          icon: "dummy",
+        });
+      }
+    }
+
+    return badgeList;
+  });
 }
 
 export default {
   onLoad: () => {
-    patchPossibleBadgeRows();
+    patchJsxBadges();
+    patchUseBadges();
   },
   onUnload: () => {
-    for (const unpatch of unpatches) unpatch();
-    unpatches = [];
+    unpatchBadges?.();
+    unpatchBadges = undefined;
+
+    for (const unpatch of jsxUnpatches) unpatch();
+    jsxUnpatches = [];
   },
-  settings: Settings,
 };
