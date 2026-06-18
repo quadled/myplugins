@@ -1,15 +1,12 @@
+import Settings from "./Settings";
+import { addLog } from "./storage";
+
 let unpatchInspector: (() => void) | undefined;
 
 export function onLoad() {
   const jsx = (window as any)?.bunny?.api?.react?.jsx;
-  if (!jsx?.onJsxCreate) {
-    console.log("[Inspector] Fehler: bunny.api.react.jsx wurde nicht gefunden!");
-    return;
-  }
+  if (!jsx?.onJsxCreate) return;
 
-  console.log("[Inspector] Plugin geladen. Suche nach Komponenten...");
-
-  // Registriert den globalen Wildcard-Patch (*)
   unpatchInspector = jsx.onJsxCreate("*", (node: any, element: any) => {
     try {
       const componentName = node?.name || element?.type?.name || element?.type;
@@ -17,28 +14,23 @@ export function onLoad() {
       if (typeof componentName === "string") {
         const nameLower = componentName.toLowerCase();
         
-        // Filtert nach allem, was mit Clans, Tags oder Guilds zu tun hat
+        // Filter nach Clan, Tag oder Guild
         if (nameLower.includes("clan") || nameLower.includes("tag") || nameLower.includes("guild")) {
-          console.log(`[Inspector] GEFUNDEN: ${componentName} -> ` + JSON.stringify(element?.props || {}));
+          addLog(componentName, element?.props || {});
         }
       }
     } catch (e) {
-      // Verhindert, dass Fehler beim Stringify den Client crashen
+      // Ignorieren, falls ein Objekt nicht gelesen werden kann
     }
   });
 }
 
 export function onUnload() {
-  if (typeof unpatchInspector === "function") {
-    unpatchInspector();
-  }
+  unpatchInspector?.();
   unpatchInspector = undefined;
-  console.log("[Inspector] Entladen.");
 }
 
-// Wir definieren ein leeres Inline-React-Element für die Settings, 
-// damit wir keine separate Settings-Datei importieren müssen!
-export const settings = () => null;
+export const settings = Settings;
 
 export default {
   onLoad,
