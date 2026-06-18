@@ -2,13 +2,12 @@ import { React, ReactNative } from "@vendetta/metro/common";
 import { Forms } from "@vendetta/ui/components";
 import { internalLogs, clearLogs, registerLogListener, unregisterLogListener } from "./storage";
 
-const { FormSection, FormText, FormRow, FormDivider } = Forms;
+const { FormSection, FormText, FormDivider } = Forms;
 const { ScrollView, Text, Pressable, View } = ReactNative;
 
 export default function Settings() {
   const [logs, setLogs] = React.useState([...internalLogs]);
 
-  // Dieser Effekt sorgt dafür, dass sich die Liste live updatet
   React.useEffect(() => {
     registerLogListener(() => {
       setLogs([...internalLogs]);
@@ -18,9 +17,9 @@ export default function Settings() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: "#1e1f22" }}>
-      <FormSection title="Clan-Tag Live Inspector">
+      <FormSection title="DevHandler Live Logs">
         <FormText style={{ marginHorizontal: 16, marginBottom: 10, color: "#949ba4" }}>
-          Klicke im Chat auf ein Profil mit Clan-Tag. Die erfassten Daten erscheinen sofort hier drunter:
+          Hier siehst du die Live-Daten der Stores im neuen Design:
         </FormText>
 
         <Pressable 
@@ -42,10 +41,9 @@ export default function Settings() {
         <View style={{ marginHorizontal: 16, marginTop: 10 }}>
           {logs.length === 0 ? (
             <Text style={{ color: "#949ba4", fontStyle: "italic", textAlign: "center", marginTop: 20 }}>
-              Noch keine Clan-Komponenten erfasst...
+              Noch keine Store-Daten erfasst...
             </Text>
           ) : (
-            // Wir mappen die Logs rückwärts, damit das Neueste oben steht
             [...logs].reverse().map((log) => (
               <View 
                 key={log.id} 
@@ -58,7 +56,7 @@ export default function Settings() {
                   borderLeftColor: "#5865f2"
                 }}
               >
-                <View style={{ flexDirection: "row", justifyContent: "between", marginBottom: 5 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 5 }}>
                   <Text style={{ color: "#3ba55d", fontWeight: "bold" }}>{log.component}</Text>
                   <Text style={{ color: "#949ba4", fontSize: 12 }}>{log.time}</Text>
                 </View>
