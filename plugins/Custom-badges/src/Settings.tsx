@@ -1,11 +1,25 @@
 import { React, ReactNative } from "@vendetta/metro/common";
+import { storage } from "@vendetta/plugin";
+import { useProxy } from "@vendetta/storage";
 import { Forms } from "@vendetta/ui/components";
 import { addBadge, getBadges, removeBadge } from "./storage";
 
-const { FormSection, FormText, FormRow, FormInput, FormDivider } = Forms;
-const { Image, View, Text, TouchableOpacity } = ReactNative;
+const { FormSection, FormText, FormRow, FormDivider } = Forms;
+const { Image, Pressable, ScrollView, Text, TextInput, View } = ReactNative;
+
+const inputStyle = {
+  backgroundColor: "#2b2d31",
+  borderRadius: 6,
+  color: "#ffffff",
+  marginHorizontal: 16,
+  marginTop: 10,
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+};
 
 export default function Settings() {
+  useProxy(storage);
+
   const [userId, setUserId] = React.useState("");
   const [label, setLabel] = React.useState("");
   const [uri, setUri] = React.useState("");
@@ -14,33 +28,38 @@ export default function Settings() {
   const badges = getBadges();
 
   return (
+    <ScrollView>
     <FormSection title="Custom Badges">
       <FormText>
         Badges sind lokal sichtbar. Andere sehen sie nur, wenn sie dieses Plugin auch installiert haben.
       </FormText>
 
-      <FormInput
-        title="User ID"
+      <TextInput
+        style={inputStyle}
         value={userId}
-        onChange={setUserId}
+        onChangeText={setUserId}
         placeholder="Discord User ID"
+        placeholderTextColor="#949ba4"
       />
 
-      <FormInput
-        title="Badge Text"
+      <TextInput
+        style={inputStyle}
         value={label}
-        onChange={setLabel}
+        onChangeText={setLabel}
         placeholder="z.B. Owner"
+        placeholderTextColor="#949ba4"
       />
 
-      <FormInput
-        title="Bild URL"
+      <TextInput
+        style={inputStyle}
         value={uri}
-        onChange={setUri}
+        onChangeText={setUri}
         placeholder="https://..."
+        placeholderTextColor="#949ba4"
+        autoCapitalize="none"
       />
 
-      <TouchableOpacity
+      <Pressable
         onPress={() => {
           const cleanUserId = userId.trim();
           const cleanLabel = label.trim();
@@ -56,7 +75,7 @@ export default function Settings() {
         }}
       >
         <FormRow label="Badge hinzufuegen" />
-      </TouchableOpacity>
+      </Pressable>
 
       <FormDivider />
 
@@ -65,7 +84,7 @@ export default function Settings() {
       ) : (
         badges.map((badge) => (
           <View key={badge.type}>
-            <TouchableOpacity
+            <Pressable
               onPress={() => {
                 removeBadge(badge.type);
                 setRefresh(refresh + 1);
@@ -80,11 +99,12 @@ export default function Settings() {
                 })}
                 trailing={React.createElement(Text, { style: { color: "#ed4245" } }, "Loeschen")}
               />
-            </TouchableOpacity>
+            </Pressable>
             <FormDivider />
           </View>
         ))
       )}
     </FormSection>
+    </ScrollView>
   );
 }
