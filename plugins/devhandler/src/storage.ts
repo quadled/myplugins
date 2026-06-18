@@ -1,3 +1,4 @@
+// plugins/devhandler/src/storage.ts
 import { storage } from "@vendetta/plugin";
 
 export type CustomClan = {
