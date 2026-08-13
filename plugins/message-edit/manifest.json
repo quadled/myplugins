@@ -1,0 +1,14 @@
+{
+    "name": "Edit Message Plugin",
+    "description": "A plugin for edit messages.",
+    "authors": [
+        {
+            "name": "Quadled",
+            "id": "1015212381619626014"
+        }
+    ],
+    "main": "src/index.ts",
+    "vendetta": {
+        "icon": "ic_badge_staff"
+    }
+}
