@@ -5,19 +5,11 @@ import { semanticColors } from "@vendetta/ui"
 import { getAssetIDByName } from "@vendetta/ui/assets"
 import { Forms } from "@vendetta/ui/components"
 import { findInReactTree } from "@vendetta/utils"
-import { storage as settings } from "@vendetta/plugin"
 import { logger } from "@vendetta"
 import { showToast } from "@vendetta/ui/toasts"
 import { showConfirmationAlert } from "@vendetta/ui/alerts"
 
-// Deine relativen Importe aus dem Projekt
-import { getLanguageName } from "./lang"
-import { translateWithFallback } from "./api"
-import { maskText, unmaskText } from "./utils/placeholder"
-import { setChannelTargetLanguage } from "./utils/ChannelLanguageStore"
-import { reportError } from "./utils/telemetry"
-
-// Globale Variablen für Lazy-Loading & State
+// Globale Variablen & Stores
 let LazyActionSheet: any
 let hideActionSheet: any
 let ActionSheetRow: any
@@ -25,30 +17,38 @@ let MessageStore: any
 let ChannelStore: any
 let styles: any
 
-const separator = "\n"
+// Speichert bearbeitete Nachrichten (Message-ID -> Originaler Text)
+const originalMessages = new Map<string, string>()
 const patchedActionSheets = new WeakSet()
-const cachedData = new Map<string, string>()
 
-// Liste aller aktiven Unpatches für sauberes Entladen
 let activeUnpatches: Array<() => void> = []
 
 function patchActionSheets(): () => void {
-    // 1. Sicheres Laden der Metro-Module zur Laufzeit
     LazyActionSheet ??= findByProps("openLazy", "hideActionSheet")
     hideActionSheet ??= findByProps("hideActionSheet")?.hideActionSheet
     ActionSheetRow ??= findByProps("ActionSheetRow")?.ActionSheetRow ?? Forms.FormRow
     MessageStore ??= findByStoreName("MessageStore")
     ChannelStore ??= findByStoreName("ChannelStore")
+    
     styles ??= stylesheet.createThemedStyleSheet({
         iconComponent: {
             width: 24,
             height: 24,
             tintColor: semanticColors.INTERACTIVE_NORMAL
+        },
+        inputField: {
+            color: semanticColors.TEXT_NORMAL,
+            backgroundColor: semanticColors.BACKGROUND_SECONDARY,
+            borderRadius: 8,
+            padding: 10,
+            marginTop: 10,
+            minHeight: 80,
+            textAlignVertical: "top"
         }
     })
 
     if (!LazyActionSheet) {
-        throw new Error("LazyActionSheet module could not be found.")
+        throw new Error("LazyActionSheet-Modul konnte nicht gefunden werden.")
     }
 
     const unpatches: Array<() => void> = []
@@ -56,9 +56,7 @@ function patchActionSheets(): () => void {
 
     const beforeUnpatch = before("openLazy", LazyActionSheet, ([component, key, msg]) => {
         const message = msg?.message
-        const userId = msg?.user?.id
-        if (typeof key !== "string") return
-        if (!key.endsWith("MessageLongPressActionSheet") && !key.endsWith("UserProfilePopout")) return
+        if (typeof key !== "string" || !key.endsWith("MessageLongPressActionSheet")) return
 
         if (message) currentMessage = message
 
@@ -76,195 +74,121 @@ function patchActionSheets(): () => void {
                     else LazyActionSheet?.hideActionSheet?.()
                 }
 
-                // ----------------------------------------------------
-                // USER PROFIL AUTO-TRANSLATE BUTTON
-                // ----------------------------------------------------
-                if (key.endsWith("UserProfilePopout") && userId) {
-                    const hasAutoTransButton = buttons.some((x: any) => x?.key === "next-translator-user-auto")
-                    if (!hasAutoTransButton) {
-                        settings.auto_translate_users ??= {}
-                        const isAutoTrans = !!settings.auto_translate_users[userId]
-
-                        buttons.unshift(
-                            <ActionSheetRow
-                                key="next-translator-user-auto"
-                                label={isAutoTrans ? "Stop Auto-Translating User" : "Auto-Translate User"}
-                                icon={
-                                    <ActionSheetRow.Icon
-                                        source={getAssetIDByName("ic_locale_24px") || getAssetIDByName("LanguageIcon")}
-                                        IconComponent={() => (
-                                            <ReactNative.Image
-                                                resizeMode="cover"
-                                                style={styles.iconComponent}
-                                                source={getAssetIDByName("ic_locale_24px") || getAssetIDByName("LanguageIcon")}
-                                            />
-                                        )}
-                                    />
-                                }
-                                onPress={() => {
-                                    dismissActionSheet()
-                                    settings.auto_translate_users[userId] = !isAutoTrans
-                                    showToast(
-                                        isAutoTrans ? "User Auto-Translation Disabled" : "User Auto-Translation Enabled",
-                                        getAssetIDByName("Check")
-                                    )
-                                }}
-                            />
-                        )
-                    }
-                    return
-                }
-
-                // ----------------------------------------------------
-                // MESSAGE LONG PRESS ACTIONS
-                // ----------------------------------------------------
-                if (buttons.some((x: any) => x?.key === "next-translator-button")) return
+                if (buttons.some((x: any) => x?.key === "local-edit-button")) return
 
                 const originalMessage = MessageStore?.getMessage(message?.channel_id, message?.id)
-                if (!originalMessage?.content && !message?.content) return
+                if (!originalMessage && !message) return
 
                 const messageId = originalMessage?.id ?? message?.id
-                const messageContent = originalMessage?.content ?? message?.content ?? ""
-                const hasCachedData = cachedData.has(messageId)
-                const translateType = hasCachedData ? "Revert" : "Translate"
+                const channelId = (originalMessage || message).channel_id
+                const currentContent = originalMessage?.content ?? message?.content ?? ""
+                const isEdited = originalMessages.has(messageId)
 
-                const icon = translateType === "Translate" 
-                    ? (getAssetIDByName("LanguageIcon") || getAssetIDByName("ic_locale_24px"))
-                    : (getAssetIDByName("ic_highlight") || getAssetIDByName("ic_locale_24px") || getAssetIDByName("LanguageIcon"))
-
-                const translate = async () => {
+                // 1. Aktion: Nachricht lokal bearbeiten
+                const openEditModal = () => {
                     dismissActionSheet()
-                    try {
-                        const channelId = (originalMessage || message).channel_id
-                        const target_lang = settings.channel_language_rules?.[channelId] || settings.target_lang_incoming || "en"
-                        const isTranslated = translateType === "Translate"
-                        const isImmersive = settings.immersive_enabled
-                        let finalContent = ""
+                    let updatedText = currentContent
 
-                        if (isTranslated) {
-                            let mainSourceLang = ""
-
-                            if (messageContent) {
-                                const { textToTranslate, placeholders } = maskText(messageContent)
-                                const res = await translateWithFallback(
-                                    textToTranslate,
-                                    settings.source_lang === "auto" ? undefined : settings.source_lang,
-                                    target_lang,
-                                    true,
-                                    settings.translator
-                                )
-                                finalContent = unmaskText(res.text, placeholders)
-                                mainSourceLang = res.source_lang || mainSourceLang
+                    showConfirmationAlert({
+                        title: "Nachricht lokal bearbeiten",
+                        content: (
+                            <ReactNative.TextInput
+                                defaultValue={currentContent}
+                                onChangeText={(val: string) => { updatedText = val }}
+                                multiline={true}
+                                style={styles.inputField}
+                                placeholder="Neuer Text..."
+                                placeholderTextColor="#888"
+                            />
+                        ),
+                        confirmText: "Speichern",
+                        cancelText: "Abbrechen",
+                        onConfirm: () => {
+                            // Ersten Zustand speichern für spätere Wiederherstellung
+                            if (!originalMessages.has(messageId)) {
+                                originalMessages.set(messageId, currentContent)
                             }
 
-                            if (settings.smart_channel_routing && mainSourceLang) {
-                                setChannelTargetLanguage(channelId, mainSourceLang)
-                            }
-
-                            const sourceName = getLanguageName(mainSourceLang, settings.translator)
-                            const targetName = getLanguageName(target_lang, settings.translator)
-                            const detectedLangStr = mainSourceLang ? `[${sourceName} ➔ ${targetName}]` : `[${targetName}]`
-
-                            finalContent = isImmersive && messageContent 
-                                ? `${messageContent}${separator}${finalContent.trim()}\n\`${detectedLangStr}\``
-                                : (finalContent ? `${finalContent.trim()}\n\`${detectedLangStr}\`` : `\`${detectedLangStr}\``)
-                        } else {
-                            finalContent = cachedData.get(messageId) || messageContent
-                        }
-
-                        const isSearchView = buttons.some((x: any) => {
-                            const lbl = String(x?.props?.label || x?.props?.message || x?.props?.text || "").toLowerCase()
-                            return lbl.includes("jump") || lbl.includes("go to")
-                        })
-
-                        if (!originalMessage || isSearchView) {
-                            showConfirmationAlert({
-                                title: "Translation",
-                                content: finalContent,
-                                confirmText: "Close"
+                            // Flux-Store lokal aktualisieren
+                            FluxDispatcher.dispatch({
+                                type: "MESSAGE_UPDATE",
+                                message: {
+                                    id: messageId,
+                                    channel_id: channelId,
+                                    content: updatedText,
+                                    guild_id: ChannelStore?.getChannel(channelId)?.guild_id,
+                                },
+                                log_edit: false,
+                                otherPluginBypass: true
                             })
-                            if (!originalMessage) return
-                        }
 
+                            showToast("Nachricht lokal geändert", getAssetIDByName("Check"))
+                        }
+                    })
+                }
+
+                // 2. Aktion: Originalen Text wiederherstellen
+                const revertEdit = () => {
+                    dismissActionSheet()
+                    const originalText = originalMessages.get(messageId)
+
+                    if (originalText !== undefined) {
                         FluxDispatcher.dispatch({
                             type: "MESSAGE_UPDATE",
                             message: {
                                 id: messageId,
                                 channel_id: channelId,
-                                content: finalContent,
+                                content: originalText,
                                 guild_id: ChannelStore?.getChannel(channelId)?.guild_id,
                             },
                             log_edit: false,
                             otherPluginBypass: true
                         })
 
-                        if (isTranslated) {
-                            cachedData.set(messageId, messageContent)
-                        } else {
-                            cachedData.delete(messageId)
-                        }
-                    } catch (e) {
-                        showToast(String(e), getAssetIDByName("Small"))
-                        logger.error(e)
-                        reportError("ActionSheet - Translate Message", e)
+                        originalMessages.delete(messageId)
+                        showToast("Original wiederhergestellt", getAssetIDByName("Check"))
                     }
                 }
 
-                const position = 1
-                buttons.splice(position, 0, (
+                // Buttons im Discord-Menü einfügen
+                buttons.splice(1, 0, (
                     <ActionSheetRow
-                        key="next-translator-button"
-                        label={`${translateType} Message`}
+                        key="local-edit-button"
+                        label="Nachricht lokal bearbeiten"
                         icon={
                             <ActionSheetRow.Icon
-                                source={icon}
+                                source={getAssetIDByName("ic_edit_24px") || getAssetIDByName("PencilIcon")}
                                 IconComponent={() => (
                                     <ReactNative.Image
                                         resizeMode="cover"
                                         style={styles.iconComponent}
-                                        source={icon}
+                                        source={getAssetIDByName("ic_edit_24px") || getAssetIDByName("PencilIcon")}
                                     />
                                 )}
                             />
                         }
-                        onPress={translate}
+                        onPress={openEditModal}
                     />
                 ))
 
-                if (hasCachedData) {
-                    buttons.splice(position + 1, 0, (
+                if (isEdited) {
+                    buttons.splice(2, 0, (
                         <ActionSheetRow
-                            key="next-translator-copy-button"
-                            label="Copy Translated Text"
+                            key="local-revert-button"
+                            label="Original wiederherstellen"
                             icon={
                                 <ActionSheetRow.Icon
-                                    source={getAssetIDByName("toast_copy_link") || getAssetIDByName("ic_copy_message_link") || getAssetIDByName("LanguageIcon")}
+                                    source={getAssetIDByName("ic_undo_24px") || getAssetIDByName("ic_highlight")}
                                     IconComponent={() => (
                                         <ReactNative.Image
                                             resizeMode="cover"
                                             style={styles.iconComponent}
-                                            source={getAssetIDByName("toast_copy_link") || getAssetIDByName("ic_copy_message_link") || getAssetIDByName("LanguageIcon")}
+                                            source={getAssetIDByName("ic_undo_24px") || getAssetIDByName("ic_highlight")}
                                         />
                                     )}
                                 />
                             }
-                            onPress={() => {
-                                let textToCopy = messageContent
-                                const match = messageContent.match(/`\[.*?\]`/s)
-                                if (match) {
-                                    const cleanText = messageContent.slice(0, match.index).trim()
-                                    if (settings.immersive_enabled) {
-                                        const parts = cleanText.split(separator)
-                                        textToCopy = parts.length > 1 ? parts.slice(1).join(separator) : cleanText
-                                    } else {
-                                        textToCopy = cleanText
-                                    }
-                                }
-
-                                ReactNative.Clipboard.setString(textToCopy)
-                                showToast("Text Copied", getAssetIDByName("check"))
-                                dismissActionSheet()
-                            }}
+                            onPress={revertEdit}
                         />
                     ))
                 }
@@ -283,31 +207,30 @@ function patchActionSheets(): () => void {
     }
 }
 
-// ----------------------------------------------------
-// VENDETTA PLUGIN LIFECYCLE (onLoad / onUnload)
-// ----------------------------------------------------
+// Vendetta Plugin Lifecycle
 export default {
     onLoad: () => {
         try {
-            logger.log("[Next Translator] Initializing Plugin...")
+            logger.log("[Local Message Edit] Plugin geladen...")
             const unpatch = patchActionSheets()
             if (unpatch) activeUnpatches.push(unpatch)
-            showToast("Next Translator Loaded", getAssetIDByName("Check"))
+            showToast("Local Message Edit geladen", getAssetIDByName("Check"))
         } catch (e) {
-            logger.error("[Next Translator] Error during onLoad:", e)
-            showToast("Error loading Next Translator", getAssetIDByName("Small"))
+            logger.error("[Local Message Edit] Fehler beim Laden:", e)
+            showToast("Fehler beim Laden!", getAssetIDByName("Small"))
         }
     },
     onUnload: () => {
         try {
-            logger.log("[Next Translator] Unloading Plugin...")
+            logger.log("[Local Message Edit] Plugin entladen...")
             for (const unpatch of activeUnpatches) {
                 unpatch()
             }
             activeUnpatches = []
-            showToast("Next Translator Unloaded", getAssetIDByName("Check"))
+            originalMessages.clear()
+            showToast("Local Message Edit deaktiviert", getAssetIDByName("Check"))
         } catch (e) {
-            logger.error("[Next Translator] Error during onUnload:", e)
+            logger.error("[Local Message Edit] Fehler beim Entladen:", e)
         }
     }
 }
