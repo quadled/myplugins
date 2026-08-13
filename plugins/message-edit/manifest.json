@@ -8,6 +8,7 @@
         }
     ],
     "main": "src/index.ts",
+    "version": "0.0.5",
     "vendetta": {
         "icon": "ic_badge_staff"
     }
