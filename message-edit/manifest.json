@@ -1,1 +1,1 @@
-{"name":"Edit Message Plugin","description":"A plugin for edit messages.","authors":[{"name":"Quadled","id":"1015212381619626014"}],"main":"index.js","vendetta":{"icon":"ic_badge_staff"},"hash":"29319d4abd16634067bde3db0c752e8f7acedad1de7a063918fad2d1f26bc045"}
+{"name":"Edit Message Plugin","description":"A plugin for edit messages.","authors":[{"name":"Quadled","id":"1015212381619626014"}],"main":"index.js","version":"0.0.5","vendetta":{"icon":"ic_badge_staff"},"hash":"804fde2a0bd451fdf6b0ffcf1605f242171a3c7b5c05f4f7ad45a3d801f75276"}
