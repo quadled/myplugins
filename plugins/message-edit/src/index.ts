@@ -1,95 +1,104 @@
 import { patcher } from "@vendetta";
-import { findByProps } from "@vendetta/modules";
+import { findByProps, findByStoreName } from "@vendetta/modules";
 import { showInputAlert } from "@vendetta/ui/alerts";
 import { FluxDispatcher } from "@vendetta/metro/common";
 
-// Modul für das Öffnen von ActionSheets/Kontextmenüs
-const ActionSheetModule = findByProps("openLazy", "hideActionSheet") || findByProps("showActionSheet");
+// Speichert die Ursprungstexte
 const originalTexts = new Map<string, string>();
 
-let unpatch: () => void;
+let unpatches: Function[] = [];
 
 export default {
     onLoad: () => {
-        if (!ActionSheetModule?.openLazy) return;
+        // Wir suchen alle Module, die Menüpunkte für Nachrichten bereitstellen
+        const menuModules = [
+            findByProps("useMessageMenuItems"),
+            findByProps("getMessageMenuItems"),
+            findByProps("default", "useMessageMenuItems")
+        ].filter(Boolean);
 
-        // Wir patchen openLazy, um das Nachrichten-Menü beim Laden abzufangen
-        unpatch = patcher.before("openLazy", ActionSheetModule, (args) => {
-            const [component, key] = args;
+        if (menuModules.length === 0) {
+            console.log("[EditPlugin] Kein passendes Menü-Modul gefunden.");
+            return;
+        }
 
-            // Prüfen, ob das aufgerufene Menü das Nachrichten-Aktionsmenü ist
-            if (key === "MessageActionSheet") {
-                args[0] = component().then((mod: any) => {
-                    const originalDef = mod.default;
+        menuModules.forEach((mod) => {
+            const targetMethod = mod.useMessageMenuItems ? "useMessageMenuItems" : "default";
 
-                    mod.default = patcher.after("default", mod, ([{ message }], res) => {
-                        if (!message) return res;
+            const unpatch = patcher.after(targetMethod, mod, (args, res) => {
+                // Das erste Argument ist das Objekt mit der Nachricht
+                const message = args[0]?.message || args[0];
+                if (!message?.id || !res) return res;
 
-                        const isEdited = originalTexts.has(message.id);
+                const isEdited = originalTexts.has(message.id);
 
-                        // 1. Option: Lokal bearbeiten
-                        const editMenuItem = {
-                            label: "Nachricht (lokal) bearbeiten",
-                            onPress: () => {
-                                showInputAlert({
-                                    title: "Nachricht bearbeiten",
-                                    placeholder: "Neuer Text...",
-                                    initialValue: message.content,
-                                    confirmText: "Speichern",
-                                    cancelText: "Abbrechen",
-                                    onConfirm: (newContent: string) => {
-                                        if (newContent === undefined) return;
+                // Option 1: Bearbeiten
+                const editItem = {
+                    label: "Nachricht (lokal) bearbeiten",
+                    onPress: () => {
+                        showInputAlert({
+                            title: "Nachricht bearbeiten",
+                            placeholder: "Neuer Text...",
+                            initialValue: message.content,
+                            confirmText: "Speichern",
+                            cancelText: "Abbrechen",
+                            onConfirm: (newContent: string) => {
+                                if (newContent === undefined) return;
 
-                                        if (!originalTexts.has(message.id)) {
-                                            originalTexts.set(message.id, message.content);
-                                        }
+                                if (!originalTexts.has(message.id)) {
+                                    originalTexts.set(message.id, message.content);
+                                }
 
-                                        message.content = newContent;
-                                        FluxDispatcher.dispatch({
-                                            type: "MESSAGE_UPDATE",
-                                            message: message
-                                        });
-                                    }
+                                message.content = newContent;
+
+                                // Chat neu rendern
+                                FluxDispatcher.dispatch({
+                                    type: "MESSAGE_UPDATE",
+                                    message: message
                                 });
                             }
-                        };
+                        });
+                    }
+                };
 
-                        // 2. Option: Zurücksetzen
-                        const resetMenuItem = {
-                            label: "Originaltext wiederherstellen",
-                            onPress: () => {
-                                const originalContent = originalTexts.get(message.id);
-                                if (originalContent !== undefined) {
-                                    message.content = originalContent;
-                                    originalTexts.delete(message.id);
-                                    FluxDispatcher.dispatch({
-                                        type: "MESSAGE_UPDATE",
-                                        message: message
-                                    });
-                                }
-                            }
-                        };
+                // Option 2: Zurücksetzen
+                const resetItem = {
+                    label: "Originaltext wiederherstellen",
+                    onPress: () => {
+                        const originalContent = originalTexts.get(message.id);
+                        if (originalContent !== undefined) {
+                            message.content = originalContent;
+                            originalTexts.delete(message.id);
 
-                        // Sicheres Einfügen der Menüpunkte
-                        if (res?.props?.rows) {
-                            res.props.rows.push(editMenuItem);
-                            if (isEdited) res.props.rows.push(resetMenuItem);
-                        } else if (Array.isArray(res)) {
-                            res.push(editMenuItem);
-                            if (isEdited) res.push(resetMenuItem);
+                            FluxDispatcher.dispatch({
+                                type: "MESSAGE_UPDATE",
+                                message: message
+                            });
                         }
+                    }
+                };
 
-                        return res;
-                    });
+                // Array sicher erweitern (egal welche Datenstruktur Discord nutzt)
+                if (Array.isArray(res)) {
+                    res.push(editItem);
+                    if (isEdited) res.push(resetItem);
+                } else if (res?.props?.children) {
+                    if (Array.isArray(res.props.children)) {
+                        res.props.children.push(editItem);
+                        if (isEdited) res.props.children.push(resetItem);
+                    }
+                }
 
-                    return mod;
-                });
-            }
+                return res;
+            });
+
+            unpatches.push(unpatch);
         });
     },
 
     onUnload: () => {
-        if (unpatch) unpatch();
+        unpatches.forEach((u) => u());
+        unpatches = [];
         originalTexts.clear();
     }
 };
