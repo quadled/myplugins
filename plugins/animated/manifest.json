@@ -1,0 +1,15 @@
+{
+    "name": "Always Animated Updated",
+    "description": "Animated Discord.",
+    "authors": [
+        {
+            "name": "Quadled",
+            "id": "1015212381619626014"
+        }
+    ],
+    "main": "src/index.ts",
+    "version": "0.0.1",
+    "vendetta": {
+        "icon": "ic_badge_staff"
+    }
+}
