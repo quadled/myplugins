@@ -5,20 +5,24 @@ let patches = [];
 
 export default {
     onLoad: () => {
-        const mod = findByProps("getUserAvatarURL");
-        const targets = ["getUserAvatarURL", "getGuildIconURL", "getUserBannerURL", "getGuildMemberAvatarURL"];
+        const React = findByProps("createElement", "cloneElement");
+        if (!React) return;
 
-        globalThis.__probeLog = [];
+        patches.push(
+            before("createElement", React, (args) => {
+                const props = args[1];
+                if (!props || typeof props !== "object") return;
 
-        for (const key of targets) {
-            if (typeof mod[key] !== "function") continue;
-            patches.push(
-                before(key, mod, (args) => {
-                    globalThis.__probeLog.push(`${key}(${JSON.stringify(args)})`);
-                    if (globalThis.__probeLog.length > 30) globalThis.__probeLog.shift();
-                })
-            );
-        }
+                for (const key of Object.keys(props)) {
+                    if (
+                        (key === "animate" || key === "animated" || key === "canAnimate" || key === "isAnimating" || key === "animateGradient") &&
+                        typeof props[key] === "boolean"
+                    ) {
+                        props[key] = true;
+                    }
+                }
+            })
+        );
     },
     onUnload: () => {
         patches.forEach(u => u());
